@@ -68,10 +68,11 @@ class BM25Store:
     ) -> None:
         """Append chunks and rebuild the BM25 index.
 
-        BM25Okapi has no incremental add — we rebuild from the full corpus.
-        For 10k–100k chunks this takes < 1 second, so it's a non-issue.
+        BM25 rebuild is very fast (<1s for 10k chunks). No batching needed.
         """
-        for c in chunks:
+        from tqdm import tqdm
+
+        for c in tqdm(chunks, desc="  BM25 tokenizing", unit="chunk", leave=False):
             self._corpus_tokens.append(_tokenize(c.content))
             self._chunks_meta.append({
                 "chunk_id": c.chunk_id,

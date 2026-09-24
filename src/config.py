@@ -46,6 +46,8 @@ class AgentConfig(BaseModel):
     max_query_rewrites: int = Field(ge=0)
     max_generation_retries: int = Field(ge=0)
     min_relevant_docs: int = Field(gt=0)
+    reranker_accept_threshold: float = Field(ge=0.0, le=1.0, default=0.5)
+    reranker_reject_threshold: float = Field(ge=0.0, le=1.0, default=0.1)
 
 
 class AuditConfig(BaseModel):

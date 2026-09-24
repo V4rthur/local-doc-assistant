@@ -15,6 +15,7 @@ from typing import Literal
 
 from langchain_ollama import ChatOllama
 from pydantic import BaseModel, Field, ValidationError
+import asyncio
 
 from src.config import CFG
 from src.agent import prompts
@@ -128,3 +129,21 @@ def rewrite_query(query: str, previous_attempts: list[str]) -> RewriteVerdict:
     )
     verdict = _call_and_validate(prompt, RewriteVerdict)
     return verdict or RewriteVerdict(rewritten=query, reason="rewrite parse failure")
+
+# ---------------- Async version for parallel calls ----------------
+
+
+async def _call_and_validate_async(prompt: str, schema: type[BaseModel], max_attempts: int = 2):
+    """Async wrapper around _call_and_validate — runs the sync call in a thread.
+
+    langchain-ollama doesn't ship a native async client that plays nicely with
+    the ChatOllama we use, so we offload to a thread. Threads are fine here
+    because we're I/O-bound on the HTTP call to Ollama, not CPU-bound.
+    """
+    return await asyncio.to_thread(_call_and_validate, prompt, schema, max_attempts)
+
+
+async def grade_relevance_async(query: str, passage: str) -> RelevanceVerdict:
+    prompt = prompts.DOC_RELEVANCE_PROMPT.format(query=query, passage=passage)
+    verdict = await _call_and_validate_async(prompt, RelevanceVerdict)
+    return verdict or RelevanceVerdict(relevant="no", reason="grader parse failure")

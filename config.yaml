@@ -64,7 +64,10 @@ retrieval:
 agent:
   max_query_rewrites: 2
   max_generation_retries: 2
-  min_relevant_docs: 1              # Threshold for Decide node
+  min_relevant_docs: 1
+  # NEW — reranker score thresholds for grader shortcut
+  reranker_accept_threshold: 0.5    # Auto-accept if reranker score ≥ this
+  reranker_reject_threshold: 0.1    # Auto-reject if reranker score ≤ this
 
 # ==================== AUDIT ====================
 audit:

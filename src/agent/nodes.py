@@ -75,29 +75,56 @@ def retrieve_node(state: AgentState) -> dict:
 def grade_docs_node(state: AgentState) -> dict:
     """Grade retrieved chunks for relevance.
 
-    Optimization: the reranker already ranked chunks by relevance. We grade
-    only the top 3 (fastest path) and take all reranker-ranked chunks that
-    pass. This cuts grader calls by 40% without hurting quality.
+    Optimizations:
+      1. Skip grading when reranker score >= accept_threshold (auto-accept).
+      2. Skip grading when reranker score <= reject_threshold (auto-reject).
+      3. Grade the middle band in parallel via asyncio.gather.
     """
+    import asyncio
+    from src.agent import graders as g
+
     query = state["current_query"]
     retrieved = state["retrieved"]
 
-    # Grade only the top 3 — anything the reranker put lower is unlikely to help
-    to_grade = retrieved[:3]
+    # Only look at top 3 — reranker already sorted by relevance
+    to_consider = retrieved[:3]
 
-    relevant = []
-    notes = []
-    for chunk in to_grade:
-        verdict = graders.grade_relevance(query, chunk.content)
-        notes.append(f"[{chunk.chunk_id}] {verdict.relevant} — {verdict.reason}")
-        if verdict.relevant == "yes":
-            relevant.append(chunk)
+    accept_thr = CFG.agent.reranker_accept_threshold
+    reject_thr = CFG.agent.reranker_reject_threshold
+
+    accepted: list = []
+    to_grade: list = []
+    notes: list[str] = []
+
+    for chunk in to_consider:
+        score = chunk.score  # This IS the reranker score
+        if score >= accept_thr:
+            accepted.append(chunk)
+            notes.append(f"[{chunk.chunk_id}] auto-accept (rerank {score:.3f} ≥ {accept_thr})")
+        elif score <= reject_thr:
+            notes.append(f"[{chunk.chunk_id}] auto-reject (rerank {score:.3f} ≤ {reject_thr})")
+        else:
+            to_grade.append(chunk)
+
+    # Grade only the middle band, in parallel
+    if to_grade:
+        async def _grade_all():
+            tasks = [g.grade_relevance_async(query, c.content) for c in to_grade]
+            return await asyncio.gather(*tasks)
+
+        verdicts = asyncio.run(_grade_all())
+
+        for chunk, verdict in zip(to_grade, verdicts):
+            notes.append(f"[{chunk.chunk_id}] LLM: {verdict.relevant} — {verdict.reason}")
+            if verdict.relevant == "yes":
+                accepted.append(chunk)
 
     return {
-        "relevant": relevant,
+        "relevant": accepted,
         "relevance_notes": notes,
         "grader_notes": state.get("grader_notes", []) + [
-            f"grade_docs: kept {len(relevant)}/{len(to_grade)} (from {len(retrieved)} reranked)"
+            f"grade_docs: {len(accepted)} accepted "
+            f"(auto: {len(to_consider) - len(to_grade)}, LLM-graded: {len(to_grade)})"
         ],
     }
 

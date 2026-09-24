@@ -37,32 +37,51 @@ class VectorStore:
         department: str = "general",
         access_level: str = "internal",
         doc_version: str = "v1",
+        batch_size: int = 32,
+        progress: bool = True,
     ) -> None:
-        """Embed and store a batch of chunks.
+        """Embed and store chunks in batches with a progress bar.
 
-        Embedding is the slow step — we batch to reduce overhead.
+        Batching serves three purposes:
+            1. Progress visibility — we can report per-batch instead of one big wait.
+            2. Fault tolerance — if Ollama hiccups mid-run, only the failing batch is lost.
+            3. Memory ceiling — 4k+ chunk embedding lists shouldn't sit in RAM at once.
         """
         if not chunks:
             return
 
-        # 1. Embed content in bulk
-        texts = [c.content for c in chunks]
-        embeddings = self._embedder.embed_documents(texts)
+        from tqdm import tqdm
 
-        # 2. Build parallel arrays Chroma expects
-        ids = [c.chunk_id for c in chunks]
-        metadatas = [
-            chunk_to_metadata(c, department, access_level, doc_version)
-            for c in chunks
-        ]
+        total = len(chunks)
+        iterator = range(0, total, batch_size)
+        if progress:
+            iterator = tqdm(
+                iterator,
+                desc=f"  Embedding ({department})",
+                total=(total + batch_size - 1) // batch_size,
+                unit="batch",
+                leave=False,
+            )
 
-        # 3. Upsert — safe for re-indexing (same chunk_id overwrites)
-        self._collection.upsert(
-            ids=ids,
-            embeddings=embeddings,
-            documents=texts,
-            metadatas=metadatas,
-        )
+        for start in iterator:
+            end = min(start + batch_size, total)
+            batch = chunks[start:end]
+
+            texts = [c.content for c in batch]
+            embeddings = self._embedder.embed_documents(texts)
+
+            ids = [c.chunk_id for c in batch]
+            metadatas = [
+                chunk_to_metadata(c, department, access_level, doc_version)
+                for c in batch
+            ]
+
+            self._collection.upsert(
+                ids=ids,
+                embeddings=embeddings,
+                documents=texts,
+                metadatas=metadatas,
+            )
 
     def delete_by_file_hash(self, file_hash: str) -> int:
         """Remove every chunk that came from a file with this hash.
