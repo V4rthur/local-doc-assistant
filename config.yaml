@@ -1,0 +1,71 @@
+# ==================== MODELS ====================
+models:
+  generator: "qwen2.5:7b-instruct"
+  grader: "qwen2.5:7b-instruct"   # Same model — 3b too weak for Uzbek grading
+  embedder: "bge-m3"    # Multilingual, replaces nomic-embed-text
+  reranker: "BAAI/bge-reranker-base"  # HuggingFace, not Ollama  # was: bge-reranker-v2-m3
+# ==================== INGESTION ====================
+ingestion:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  supported_extensions: [".pdf", ".docx", ".txt"]
+  extract_tables: true              # Uses pdfplumber
+  script_normalization: "latin"     # Convert Cyrillic Uzbek → Latin for consistency
+
+# ==================== CHUNKING ====================
+chunking:
+  strategy: "article_aware"
+  chunk_size: 800
+  chunk_overlap: 120
+  article_patterns:
+    # Codex articles (highest priority — always specific)
+    - "Modda\\s+\\d+"
+    - "Статья\\s+\\d+"
+    - "Article\\s+\\d+"
+    # Chapters / books
+    - "Bob\\s+\\d+"
+    - "Глава\\s+\\d+"
+    - "Chapter\\s+\\d+"
+    - "[IVXLC]+\\s*[-.]?\\s*bob"          # "II bob.", "IV-bob"
+    - "[IVXLC]+\\s*[-.]?\\s*глава"
+    # Numbered top-level sections in instructions/decrees
+    # Matches "1.", "12.", "1. Umumiy" at line start — but NOT "1.1."
+    - "^\\s*\\d{1,3}\\.\\s+[A-ZА-ЯOʻGʻ]"
+    # Annexes
+    - "Ilova\\s+\\d*"
+    - "Приложение\\s+\\d*"
+    - "Annex\\s+\\d*"
+
+# ==================== INDEXING ====================
+indexing:
+  chroma_dir: "data/indexes/chroma"
+  bm25_path: "data/indexes/bm25/bm25.pkl"
+  collection_name: "documents"
+  incremental: true                 # Skip unchanged files by hash
+
+# ==================== RETRIEVAL ====================
+retrieval:
+  top_k_vector: 20
+  top_k_bm25: 20
+  rrf_k: 60                         # RRF constant
+  top_k_after_fusion: 10
+  top_k_after_rerank: 5
+
+# ==================== AGENT ====================
+agent:
+  max_query_rewrites: 2
+  max_generation_retries: 2
+  min_relevant_docs: 1              # Threshold for Decide node
+
+# ==================== AUDIT ====================
+audit:
+  log_path: "logs/audit.jsonl"
+  log_queries: true
+  log_sources: true
+
+# ==================== UI ====================
+ui:
+  page_title: "Lokal Hujjat Yordamchisi"
+  show_sources: true
+  show_retry_count: true
+  enable_flag_button: true

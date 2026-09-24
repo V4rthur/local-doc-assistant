@@ -1,0 +1,61 @@
+# ==================== Python ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ==================== Virtual environments ====================
+.venv/
+venv/
+env/
+ENV/
+
+# ==================== IDE / Editor ====================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ==================== Environment / Secrets ====================
+.env
+.env.local
+*.env
+
+# ==================== Project data ====================
+# User's source documents — NEVER commit legal texts
+data/raw/*
+!data/raw/.gitkeep
+
+# Extracted intermediate content
+data/processed/*
+!data/processed/.gitkeep
+
+# Vector + BM25 indexes (rebuildable from raw)
+data/indexes/chroma/
+data/indexes/bm25/*.pkl
+data/indexes/manifest.json
+!data/indexes/.gitkeep
+
+# ==================== Logs ====================
+logs/*
+!logs/.gitkeep
+
+# ==================== HuggingFace cache ====================
+# Only relevant if user set HF_HOME to project-local path
+.cache/
+huggingface/
+
+# ==================== Streamlit ====================
+.streamlit/secrets.toml
+
+# ==================== Evaluation ====================
+eval/reports/*
+!eval/reports/.gitkeep
