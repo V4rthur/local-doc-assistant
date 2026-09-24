@@ -143,33 +143,59 @@ def load_pdf(path: Path, normalize_script: bool = True) -> Document:
 def load_docx(path: Path, normalize_script: bool = True) -> Document:
     """Extract paragraphs and tables from a Word document.
 
-    DOCX has no real 'pages' — we approximate by grouping every N paragraphs.
+    Groups paragraphs into ~1500-char blocks (roughly one page each) so the
+    chunker downstream has enough context to detect article boundaries.
+    Emitting one block per paragraph would fragment legal codexes into
+    thousands of unlabelled fragments.
     """
     doc = DocxDocument(str(path))
     blocks: list[Block] = []
     combined_text_for_lang: list[str] = []
 
-    APPROX_PARAS_PER_PAGE = 30  # rough heuristic for citations
-    para_count = 0
+    TARGET_BLOCK_CHARS = 1500  # ~one page of legal text
+    APPROX_CHARS_PER_PAGE = 1500  # for page-number approximation
+
+    # ---- Group paragraphs into blocks ----
+    buffer: list[str] = []
+    buffer_len = 0
+    total_chars = 0
+
+    def _flush(page: int) -> None:
+        """Emit the buffered paragraphs as one text block."""
+        nonlocal buffer, buffer_len
+        if not buffer:
+            return
+        joined = "\n".join(buffer)
+        norm_text, _ = normalize(joined, "latin" if normalize_script else "preserve")
+        if norm_text:
+            blocks.append(Block(kind="text", content=norm_text, page=page))
+            combined_text_for_lang.append(norm_text)
+        buffer = []
+        buffer_len = 0
 
     for para in doc.paragraphs:
         text = para.text.strip()
         if not text:
             continue
-        para_count += 1
-        page = (para_count - 1) // APPROX_PARAS_PER_PAGE + 1
-        norm_text, _ = normalize(text, "latin" if normalize_script else "preserve")
-        if norm_text:
-            blocks.append(Block(kind="text", content=norm_text, page=page))
-            combined_text_for_lang.append(norm_text)
+        buffer.append(text)
+        buffer_len += len(text) + 1  # +1 for the newline
+        total_chars += len(text) + 1
 
-    # Tables in DOCX
-    for table_idx, table in enumerate(doc.tables, start=1):
+        if buffer_len >= TARGET_BLOCK_CHARS:
+            page = max(1, total_chars // APPROX_CHARS_PER_PAGE)
+            _flush(page)
+
+    # Emit whatever remains
+    if buffer:
+        page = max(1, total_chars // APPROX_CHARS_PER_PAGE)
+        _flush(page)
+
+    # ---- Tables (unchanged) ----
+    for table in doc.tables:
         rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
         md = _table_to_markdown(rows)
         if md:
             norm_md, _ = normalize(md, "latin" if normalize_script else "preserve")
-            # Approximate: put table on a page after the last text block seen
             page = max((b.page for b in blocks), default=1)
             blocks.append(Block(kind="table", content=norm_md, page=page))
 

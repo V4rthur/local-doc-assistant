@@ -33,14 +33,35 @@ def get_graph():
 
 # ---------------- Sidebar: access + settings ----------------
 
+@st.cache_data(ttl=300)
+def _list_indexed_departments() -> list[str]:
+    """Read distinct department values from the vector store.
+
+    Cached for 5 min so we don't hit Chroma on every rerun. Reset the
+    conversation or restart Streamlit to refresh after re-indexing.
+    """
+    try:
+        from src.indexing.vector_store import VectorStore
+        store = VectorStore()
+        # Grab all metadata (no embeddings needed) — cheap on 4k chunks
+        raw = store._collection.get(include=["metadatas"])
+        depts = {m.get("department") for m in raw.get("metadatas", []) if m.get("department")}
+        return sorted(depts) if depts else ["general"]
+    except Exception:
+        return ["general"]
+
+
 def render_sidebar() -> dict:
     st.sidebar.title("⚙️ Sozlamalar / Settings")
 
     st.sidebar.subheader("👤 User")
+
+    departments = _list_indexed_departments()
     dept = st.sidebar.selectbox(
         "Department",
-        ["general", "legal", "hr", "safety", "operations"],
+        departments,
         index=0,
+        help=f"Departments detected from your index: {', '.join(departments)}",
     )
     clearance = st.sidebar.selectbox(
         "Access clearance",
@@ -65,6 +86,7 @@ def render_sidebar() -> dict:
         f"• emb: `{CFG.models.embedder}`\n"
         f"• rerank: `{CFG.models.reranker}`"
     )
+    st.sidebar.caption(f"Indexed departments: {len(departments)}")
 
     return {
         "department": dept,

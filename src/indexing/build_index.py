@@ -47,8 +47,7 @@ def main() -> int:
     manifest = Manifest(MANIFEST_PATH)
 
     # ------------------------------------------------------------
-    # Handle --rebuild: wipe manifest, delete old chunks per-file so
-    # both stores drain cleanly (no dangling entries).
+    # --rebuild
     # ------------------------------------------------------------
     if args.rebuild:
         print("🔄 --rebuild: dropping all existing chunks…")
@@ -58,7 +57,7 @@ def main() -> int:
             manifest.forget(source_path)
 
     # ------------------------------------------------------------
-    # Handle deletions: files in the manifest that no longer exist on disk
+    # Handle deletions
     # ------------------------------------------------------------
     on_disk = {str(p) for p in iter_raw_documents(raw_dir)}
     deleted_files = manifest.known_files() - on_disk
@@ -70,14 +69,24 @@ def main() -> int:
               f"(vector: -{removed_v}, bm25: -{removed_b})")
 
     # ------------------------------------------------------------
-    # Ingest each file: skip if hash matches manifest, else re-index
+    # Ingest each file
     # ------------------------------------------------------------
     total_added = 0
     total_skipped = 0
 
     for path in sorted(iter_raw_documents(raw_dir)):
         source_path = str(path)
-        print(f"\n📄 {path.name}")
+
+        # NEW: department = immediate parent folder under data/raw/
+        # e.g. data/raw/finance/soliq-kodeksi.pdf → 'finance'
+        # Files placed directly in data/raw/ get the CLI --department value
+        try:
+            rel = path.relative_to(raw_dir)
+            department = rel.parts[0] if len(rel.parts) > 1 else args.department
+        except ValueError:
+            department = args.department
+
+        print(f"\n📄 {path.name}  →  department={department}")
 
         try:
             doc = load_document(path)
@@ -91,27 +100,23 @@ def main() -> int:
             total_skipped += 1
             continue
 
-        # Hash changed → drop old chunks first
         if known_hash and known_hash != doc.file_hash:
             removed_v = vector.delete_by_file_hash(known_hash)
             removed_b = bm25.delete_by_file_hash(known_hash)
             print(f"   ♻️  Content changed — dropped old chunks "
                   f"(vector: -{removed_v}, bm25: -{removed_b})")
 
-        # Chunk + index
         chunks = chunk_document(doc)
         print(f"   ✂️  Chunked into {len(chunks)} pieces")
 
-        vector.add_chunks(chunks, args.department, args.access, args.doc_version)
-        bm25.add_chunks(chunks, args.department, args.access, args.doc_version)
+        # NEW: use auto-detected department instead of the CLI flag
+        vector.add_chunks(chunks, department, args.access, args.doc_version)
+        bm25.add_chunks(chunks, department, args.access, args.doc_version)
         manifest.record(source_path, doc.file_hash, len(chunks))
         total_added += len(chunks)
-        print(f"   ✅ Indexed: department={args.department} "
+        print(f"   ✅ Indexed: department={department} "
               f"access={args.access} version={args.doc_version}")
 
-    # ------------------------------------------------------------
-    # Persist BM25 + manifest (Chroma auto-persists)
-    # ------------------------------------------------------------
     bm25.save()
     manifest.save()
 
