@@ -161,6 +161,10 @@ def render_assistant_message(msg: dict, settings: dict, idx: int) -> None:
         if settings["show_trace"]:
             with st.expander("🔍 Agent trace", expanded=False):
                 _render_trace(msg["trace"])
+                
+        # Show contextualized query if it was rewritten
+        if settings["show_trace"] and msg.get("contextualized_query") and msg["contextualized_query"] != msg["query"]:
+            st.caption(f"🔄 Contextualized to: *{msg['contextualized_query']}*")
 
         # Grader notes
         if settings["show_relevance_notes"]:
@@ -210,6 +214,13 @@ def main() -> None:
         placeholder = st.empty()
         placeholder.markdown("🤔 O'ylayapman… / Thinking…")
 
+        # Build conversation history for the agent
+        history = [
+            {"role": m["role"], "content": m.get("content") or m.get("answer", "")}
+            for m in st.session_state.messages[:-1]  # exclude the just-added user msg
+            if m.get("role") in ("user", "assistant")
+        ]
+
         t0 = time.time()
         graph = get_graph()
         try:
@@ -217,6 +228,7 @@ def main() -> None:
                 query,
                 user_department=settings["department"],
                 user_clearance=settings["clearance"],
+                conversation_history=history,   # NEW
             ))
         except Exception as e:
             placeholder.error(f"Agent failed: {e}")
@@ -227,6 +239,7 @@ def main() -> None:
     # Persist and render
     msg = {
         "role": "assistant",
+        "contextualized_query": final_state.get("contextualized_query", query),   # NEW
         "query": query,
         "answer": final_state.get("answer", "(no answer)"),
         "sources": final_state.get("relevant", []),

@@ -42,6 +42,11 @@ class RewriteVerdict(BaseModel):
     rewritten: str = Field(min_length=1, max_length=500)
     reason: str = Field(max_length=300)
 
+class StandaloneVerdict(BaseModel):
+    standalone_query: str = Field(min_length=1, max_length=500)
+    was_rewritten: Literal["yes", "no"]
+    reason: str = Field(max_length=300)
+
 
 # ---------------- LLM handle ----------------
 
@@ -129,6 +134,19 @@ def rewrite_query(query: str, previous_attempts: list[str]) -> RewriteVerdict:
     )
     verdict = _call_and_validate(prompt, RewriteVerdict)
     return verdict or RewriteVerdict(rewritten=query, reason="rewrite parse failure")
+
+def contextualize_query(query: str, history: list[dict]) -> StandaloneVerdict:
+    """Rewrite a follow-up query into a standalone form using conversation history."""
+    prompt = prompts.CONTEXTUALIZE_PROMPT.format(
+        history=prompts.format_history(history),
+        query=query,
+    )
+    verdict = _call_and_validate(prompt, StandaloneVerdict)
+    return verdict or StandaloneVerdict(
+        standalone_query=query,
+        was_rewritten="no",
+        reason="contextualize parse failure",
+    )
 
 # ---------------- Async version for parallel calls ----------------
 

@@ -50,14 +50,22 @@ def _decide_after_answer(state: AgentState) -> str:
         return "rewrite_query"
     return "finalize"  # ship the answer even if imperfect — better than nothing
 
+def _decide_after_generation(state: AgentState) -> str:
+    """After generation: skip the two grader checks if we had high-confidence retrieval."""
+    if state.get("high_confidence", False):
+        return "finalize"
+    return "grade_hallucination"
+
 
 # ---------------- Build the graph ----------------
+
 
 def build_graph():
     """Assemble and compile the state graph."""
     g = StateGraph(AgentState)
 
     # Register every node
+    g.add_node("contextualize", nodes.contextualize_node)  # NEW
     g.add_node("retrieve", nodes.retrieve_node)
     g.add_node("grade_docs", nodes.grade_docs_node)
     g.add_node("rewrite_query", nodes.rewrite_query_node)
@@ -69,15 +77,24 @@ def build_graph():
     g.add_node("finalize_gen_limit", nodes.finalize_gen_limit)
 
     # Linear edges
-    g.add_edge(START, "retrieve")
+    g.add_edge(START, "contextualize")  # CHANGED — was: START, "retrieve"
+    g.add_edge("contextualize", "retrieve")  # NEW
     g.add_edge("retrieve", "grade_docs")
     g.add_edge("rewrite_query", "retrieve")
-    g.add_edge("generate", "grade_hallucination")
     g.add_edge("finalize", END)
     g.add_edge("finalize_no_docs", END)
     g.add_edge("finalize_gen_limit", END)
 
-    # Conditional edges
+    # Conditional edges (unchanged)
+    g.add_conditional_edges(
+        "generate",
+        _decide_after_generation,
+        {
+            "grade_hallucination": "grade_hallucination",
+            "finalize": "finalize",
+        },
+    )
+
     g.add_conditional_edges(
         "grade_docs",
         _decide_after_grading,

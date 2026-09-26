@@ -56,12 +56,22 @@ Do not include any text outside the JSON object."""
 
 GENERATE_ANSWER_PROMPT = """You are a document assistant answering questions strictly from provided source passages.
 
-STRICT RULES:
+CRITICAL LANGUAGE RULE — THIS IS THE MOST IMPORTANT RULE:
+- Detect the language of the QUESTION below.
+- Your ENTIRE answer MUST be in that exact language.
+- If the question is in Uzbek Latin script → answer entirely in Uzbek Latin script.
+- If the question is in Russian → answer entirely in Russian.
+- If the question is in English → answer entirely in English.
+- NEVER include Chinese characters (中文) in your answer. NEVER.
+- NEVER mix languages within the answer. If the question is Uzbek, every sentence, every bullet, every word must be Uzbek.
+- If you feel tempted to write in Chinese or English when the question was Uzbek, STOP and rewrite in Uzbek.
+
+STRICT CONTENT RULES:
 1. Answer ONLY from the passages below. If they do not contain the answer, say so plainly in the user's language.
-2. Answer in the SAME language as the QUESTION.
-3. Cite sources inline like [1], [2] using the numbers in the passages.
-4. Be concise and factual. Do not add background the passages don't mention.
-5. If passages contradict, note the disagreement and cite both.
+2. Cite sources inline like [1], [2] using the numbers shown next to each passage.
+3. Be concise and factual. Do not add background the passages don't mention.
+4. If passages contradict, note the disagreement and cite both.
+5. Do NOT repeat the same heading multiple times. Structure your answer once, cleanly.
 
 QUESTION:
 {query}
@@ -69,7 +79,8 @@ QUESTION:
 PASSAGES:
 {passages}
 
-Write your answer now. If the passages do not answer the question, say so."""
+Now write your answer, IN THE SAME LANGUAGE AS THE QUESTION.
+If the question is Uzbek, your first word must be Uzbek. Every following word must be Uzbek."""
 
 
 # ---------------- Hallucination grader ----------------
@@ -123,4 +134,49 @@ def format_passages(chunks: list) -> str:
         label = meta.get("article_label") or "-"
         loc = f"{meta.get('filename', '?')}, p.{meta.get('page', '?')}, «{label}»"
         lines.append(f"[{i}] ({loc})\n{c.content}\n")
+    return "\n".join(lines)
+
+# ---------------- Multi-turn query contextualization ----------------
+
+CONTEXTUALIZE_PROMPT = """You are rewriting a short follow-up question into a standalone question.
+
+The user asked something previously (in HISTORY). Now they've asked a follow-up (NEW QUESTION). The follow-up may skip repeating what they're asking about — your job is to figure out what they mean and produce a standalone version.
+
+RULES:
+1. You MUST produce a NEW question. It must differ from BOTH the follow-up AND every previous question in the history.
+2. Identify what the follow-up is asking ABOUT. Usually it's a noun that replaces the subject of a previous question:
+   - Previous: "What are employee rights?"
+   - Follow-up: "And employer?" or "Employer haqida-chi?"
+   - Rewrite: "What are employer rights?" — the NEW subject with the SAME question structure.
+3. Keep the rewrite in the SAME language as the follow-up.
+4. Keep it SHORT. Match the length of previous questions in history. Do NOT add invented specifics ("in the contract", "under which article", etc.) that weren't in the follow-up.
+5. Do NOT invent context that isn't in the follow-up.
+
+FORBIDDEN OUTPUTS (these all get rejected):
+- Returning the follow-up unchanged
+- Returning any previous question from HISTORY verbatim
+- Returning a version longer than any question in HISTORY
+- Adding new topics not mentioned in the follow-up
+
+CONVERSATION HISTORY (most recent last):
+{history}
+
+FOLLOW-UP QUESTION (must rewrite by inserting the missing subject):
+{query}
+
+Respond with a JSON object:
+{{"standalone_query": "the rewritten question — new subject, same shape as history question", "was_rewritten": "yes", "reason": "one short sentence"}}
+
+Do not include any text outside the JSON object."""
+
+def format_history(history: list[dict], max_turns: int = 4) -> str:
+    """Render the last few turns for insertion into the contextualization prompt."""
+    if not history:
+        return "(no previous turns)"
+    recent = history[-max_turns:]
+    lines = []
+    for msg in recent:
+        role = msg.get("role", "?").upper()
+        content = msg.get("content", "")[:400]  # cap length
+        lines.append(f"{role}: {content}")
     return "\n".join(lines)
